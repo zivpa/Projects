@@ -1,0 +1,835 @@
+---
+title: "lab_3"
+author: "Ofir Yosef and Ziv Parchi"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r,warning=FALSE, message=FALSE}
+library(readxl)
+library(ggplot2)
+library(scales)
+library(tidyverse)
+library(dplyr)
+library(data.table)
+library(ISLR)
+library(glmnet)
+library(matrixStats)
+library(grid) # graphics layout capabilities
+library(gridExtra) # Fun
+```
+Q1-A:
+```{r}
+#A:
+#the simulate function
+sample_function = function(n, lambda){
+  x = sort(runif(n, -2, 2))
+  epsilon = rnorm(n, 0, sqrt(0.3)) #sample epsilon
+  f_x = sin(lambda*x) + 0.25*(x)^2 + ((x-0.4)/3)^3 # define f(x)
+  y = f_x + epsilon # define y
+  data_x_y = setNames(data.frame(matrix(ncol=2,nrow=n)), c('x', 'y'))
+  data_x_y[,1] = x
+  data_x_y[,2] = y
+  return(data_x_y)
+}
+
+```
+B:
+```{r}
+#B
+#the simulate function
+kernel_regression <- function(x, h,train_data){
+  y_hat <- NULL
+  x_train <- train_data$x
+  for(x_i in x_train){
+    u <-  (x - x_i)/h # define u for gk
+    gk <-(1/((sqrt(2*pi)*h)))*exp(-0.5 *(u^2)) #the gk function
+    Ksum <- sum(gk)
+    weight <- gk/Ksum
+    y <- train_data$y
+    y_k <- sum(weight*y)
+    y_hat <- rbind(y_hat,c(y_k,weight))
+    }
+  return(data.frame(x_train,y_hat))
+}
+
+
+```
+
+```{r}
+#check the function 
+set.seed(123)
+train_data_try = sample_function(50,2)
+x_ = train_data_try$x
+y_ = train_data_try$y
+x_1 <- sort(runif(50, -2, 2))
+k_smooth <-ksmooth(x_,y_,"normal",bandwidth =0.2)
+kernel_sample<-kernel_regression(x_1 ,0.2,train_data_try)
+
+plot(x_,y_,main='Did the function work?',xlim = range( c(-2,2)), ylim=range( c(-2,2)))
+lines(k_smooth,col='red')
+lines(kernel_sample$x_train,kernel_sample$X1,col='green')
+legend("topleft", legend=c("ksmooth", "function q_2"),
+       col=c("red", "green"), lty=1:2, cex=0.8)
+
+```
+
+
+*It can seen that our Kernel Regression Function are have similar graph to the Ksmooth function.*
+
+
+C:
+
+
+*sigma^2 = 0.3 (the variance of the epsilon we added to the original f(x))*
+
+
+*trace w = the main diag of the w matrix, the matrix we used to calcualte the kernel prediction*
+
+```{r}
+#c:a
+set.seed(123)
+#define all the n,lammda and h for all the function in Q1
+n <- c(50,200)
+lamdda <- c(1.5,5)
+h <- c(0.1,0.3,0.8,1,4,10)
+
+#function calculate the eop
+function_a <- function(n,lamdda,h){
+  EOP <- NULL
+  for (n_i in n){
+    for (lamdda_i in lamdda){
+      for (h_i in h){
+      # loop to sample for every n,lammda,h the w
+        samp_x_y <- sample_function(n_i,lamdda_i)
+        sample_w <- kernel_regression(x = sort(runif(n_i, -2, 2)), h_i, samp_x_y)
+        w <- as.matrix(sample_w[,-c(1,2)])
+      #the eop formula
+        w <- ((2*0.3)/n)*sum(diag(w))
+        EOP<- rbind(EOP, c(round(n_i,1) , round(lamdda_i,1), round(h_i,1), round(w[1],5)))
+    }}}
+  return(EOP)}
+#order it to be beautiful 
+EOP_matrix <- function_a(n,lamdda,h)
+EOP_matrix <- as.data.frame(EOP_matrix)
+colnames(EOP_matrix) <- c("N","Lambda","H", "EOP")
+EOP_matrix
+
+```
+
+```{r}
+#show in a graph
+EOP_matrix$n_lam<- with(EOP_matrix, paste(N, Lambda),sep= " ")
+ggplot(data=EOP_matrix, aes(x=H, y=EOP, colour=n_lam)) + geom_line()+ ggtitle("Kernel function by \n different H,N & Lambda \n EOP ")+ geom_point(colour = "red", size = 1)
+
+```
+
+
+*It can be seen that the larger the H and N, the smaller the EOP.*
+
+```{r}
+#c:b
+set.seed(123)
+function_b <- function(n,lamdda,h){
+  EPE <- NULL
+  for (n_i in n){
+    for (lamdda_i in lamdda){
+      for (h_i in h){
+      # loop to sample for every n,lammda,h
+        samp_x_y <- sample_function(n_i,lamdda_i)
+        samp_x_y <-samp_x_y[sample(nrow(samp_x_y)),] #sample
+        EPE_2 <- NULL
+        five_folds <- cut(seq(1,nrow(samp_x_y)),breaks=5,labels=FALSE)
+      # creat 5 diffrent folds
+        for(fold in 1:5){
+          index <- which(five_folds==fold,arr.ind=TRUE)
+          data_test <- samp_x_y[index, ]
+          data_train <- samp_x_y[-index, ]
+          sample <- kernel_regression(sort(runif(0.8*n_i, -2, 2)), h_i, data_train)
+          epe <- c((5/n_i)*sum((sample[,2]-data_train$y)^2))
+          EPE_2 <- cbind(EPE_2, epe)} 
+        EPE<- rbind(EPE_2,EPE)
+  }}}
+  return(EPE)}
+
+#order it to be beautiful 
+EPE_fold <- as.data.frame(function_b(n,lamdda,h))
+EPE_fold <- rowMeans(EPE_fold)
+EPE_matrix_fold <- cbind(EOP_matrix[,c(1,2,3)],EPE_fold)
+EPE_matrix_fold
+
+```
+
+```{r}
+#show in a graph
+EPE_matrix_fold$n_lam<- with(EPE_matrix_fold, paste(N, Lambda),sep= " ")
+ggplot(data=EPE_matrix_fold, aes(x=H, y=EPE_fold, colour=n_lam)) + geom_line()+ geom_point(colour = "red", size = 1)+ ggtitle("Kernel function by \n different H,N & Lambda \n EPE_fold ")
+
+```
+
+
+*It can be seen that the larger the  N, the larger the EPE_fold*
+
+
+
+*EPEin=1n∑EYi|X=xi[(Yi−f^(xi))2|T]*
+```{r}
+#c:c
+set.seed(123)
+#function to calculate EPE in
+function_c <- function(n,lamdda,h){
+  EPE_in <- NULL
+  for (n_i in n){
+    for (lamdda_i in lamdda){
+      for (h_i in h){
+        x_sample <- sort(runif(n_i, -2, 2))
+        train_data <- sample_function(n_i,lamdda_i)
+        EPE_samp <- kernel_regression(x_sample, h_i, train_data)
+        EPE_y <- EPE_samp[,2]# take the y
+        f_x <- function(x) sin(lamdda_i*x) + 0.25*(x^2) + ((x-0.4)/3)^3
+        epsilon <-  rnorm(n_i,0,sqrt(0.3))
+        y_i <- f_x(EPE_samp[,1]) + epsilon
+        MSE <- mean((y_i-EPE_y)^2)
+        EPE_in<- rbind(EPE_in, c(MSE))
+    }}}
+    return(EPE_in)}
+
+EPE_in <- as.data.frame(function_c(n,lamdda,h))
+EPE_in_matrix <- EOP_matrix[1:3]
+EPE_in_matrix <- cbind(EPE_in_matrix,EPE_in)
+EPE_in_matrix
+```
+
+```{r}
+#show in a graph
+EPE_in_matrix$n_lam<- with(EPE_in_matrix, paste(N, Lambda),sep= " ")
+ggplot(data=EPE_in_matrix, aes(x=H, y=V1, colour=n_lam)) + geom_line()+ ggtitle("Kernel function by \n different H,N & Lambda \n EPE_in ")+ geom_point(colour = "red", size = 1)
+
+```
+
+
+*It can be seen that the larger the  N, the smaller the EPE_fold.*
+
+
+*EPE(f)=E(Y−f(x))2*
+```{r}
+#c:d
+set.seed(123)
+#function to calculate EPE
+function_d <- function(n,lamdda,h){
+  EPE <- NULL
+  for (n_i in n){
+    for (lamdda_i in lamdda){
+      for (h_i in h){
+        x_sample <- sort(runif(n_i, -2, 2))
+      # i will the 2 times the same things
+        train_data <- sample_function(n_i,lamdda_i)
+        train_data_2 <- sample_function(n_i,lamdda_i)
+        EPE_samp <- kernel_regression(x_sample, h_i, train_data)
+        EPE_samp_2 <- kernel_regression(x_sample, h_i, train_data_2)
+        EPE_samp_y <- EPE_samp[,2]
+        EPE_samp_y_2 <- EPE_samp_2[,2]
+      # now i have 2 y to calculate the mse
+        new_mse <- mean((EPE_samp_y_2-EPE_samp_y)^2)
+        EPE<- rbind(EPE, c(new_mse))
+    }}}
+    return(EPE)}
+
+EPE <- as.data.frame(function_d(n,lamdda,h))
+EPE_matrix <- EOP_matrix[1:3]
+EPE_matrix <- cbind(EPE_matrix,EPE)
+EPE_matrix
+```
+
+```{r}
+#show in a graph
+EPE_matrix$n_lam<- with(EPE_matrix, paste(N, Lambda),sep= " ")
+ggplot(data=EPE_matrix, aes(x=H, y=V1, colour=n_lam)) + geom_line()+ ggtitle("Kernel function by \n different H,N & Lambda \n EPE")+ geom_point(colour = "red", size = 1)
+
+```
+
+
+*It can be seen that the size of the N affects the EPE only to a very small H.*
+
+D:
+```{r}
+#d:EOP
+
+# I will do the same things just indtead of my karrnel function I will use lm with poly
+set.seed(123)
+n <- c(50,200)
+lamdda <- c(1.5,5)
+#function calculate the eop
+function_a_4 <- function(n,lamdda,h){
+  EOP <- NULL
+  eop <- NULL
+  for (n_i in n){
+    for (lamdda_i in lamdda){
+      # loop to sample for every n
+      samp_x_y <- sample_function(n_i,lamdda_i)
+      sample_1 <-lm(samp_x_y$y ~ poly(samp_x_y$x,2))
+      predict_y <- predict(sample_1)
+      EOP<- (2*0.3/n_i)*sample_1$rank
+      eop <- rbind(eop, c(round(n_i,1) , round(lamdda_i,1), round(EOP,5)))
+    }}
+  return(eop)}
+#order it to be beautiful 
+EOP_matrix_4 <- function_a_4(n,lamdda,h)
+EOP_matrix_4 <- as.data.frame(EOP_matrix_4)
+colnames(EOP_matrix_4) <- c("N","Lambda", "EOP")
+EOP_matrix_4
+
+```
+
+```{r}
+#show in a graph
+EOP_matrix_4$n_lam<- with(EOP_matrix_4, paste(N, Lambda),sep= " ")
+ggplot(data=EOP_matrix_4, aes(x=n_lam, y=EOP, fill = n_lam)) + geom_bar(position=position_dodge(), stat="identity")+ ggtitle("OLS function by \n different N & Lambda \n EOP ")
+
+```
+
+
+*It can be seen that only the n effect on the EOP and that Lambda has no effect at all*
+
+```{r}
+#d:EPE_folds
+set.seed(123)
+function_b_4 <- function(n,lamdda,h){
+  EPE <- NULL
+  for (n_i in n){
+    for (lamdda_i in lamdda){
+      # loop to sample for every n,lammda
+      samp_x_y <- sample_function(n_i,lamdda_i)
+      samp_x_y <-samp_x_y[sample(nrow(samp_x_y)),] #sample
+      EPE_2 <- NULL
+      five_folds <- cut(seq(1,nrow(samp_x_y)),breaks=5,labels=FALSE)
+      # creat 5 diffrent folds
+      for(fold in 1:5){
+        index <- which(five_folds==fold,arr.ind=TRUE)
+        data_test <- samp_x_y[index, ]
+        data_train <- samp_x_y[-index, ]
+        sample <- lm(data_train$y ~ poly(data_train$x,2))
+        predict_y <- predict(sample)
+        epe <- c((5/n_i)*sum((predict_y-data_train$y)^2))
+        EPE_2 <- cbind(EPE_2, epe)} 
+      EPE<- rbind(EPE_2,EPE)
+  }}
+  return(EPE)}
+
+EPE_fold_4 <- as.data.frame(function_b_4(n,lamdda,h))
+EPE_fold_4 <- rowMeans(EPE_fold_4)
+EPE_matrix_fold_4 <- cbind(EOP_matrix_4[,c(1,2)],EPE_fold_4)
+EPE_matrix_fold_4
+```
+
+```{r}
+#show in a graph
+EPE_matrix_fold_4$n_lam<- with(EPE_matrix_fold_4, paste(N, Lambda),sep= " ")
+ggplot(data=EPE_matrix_fold_4, aes(x=n_lam, y=EPE_fold_4, fill = n_lam)) + geom_bar(position=position_dodge(), stat="identity")+ ggtitle("OLS function by \n different N & Lambda \n EPE_fold ")
+
+```
+
+
+*It can be seen that the smaller the Lambda the EPE_fold will be larger*
+
+```{r}
+#d:EPE_in
+set.seed(123)
+function_c_4 <- function(n,lamdda,h){
+  EPE_in <- NULL
+  for (n_i in n){
+    for (lamdda_i in lamdda){
+      x_sample <- sort(runif(n_i, -2, 2))
+      train_data <- sample_function(n_i,lamdda_i)
+      EPE_samp <- lm(train_data$y ~ poly(train_data$x,2))
+      EPE_y <- predict(EPE_samp)
+      f_x <- function(x) sin(lamdda_i*x) + 0.25*(x^2) + ((x-0.4)/3)^3
+      epsilon <-  rnorm(n_i,0,sqrt(0.3))
+      y_i <- f_x(train_data$x) + epsilon
+      MSE <- mean((y_i-EPE_y)^2)
+      EPE_in<- rbind(EPE_in, c(MSE))
+    }}
+    return(EPE_in)}
+
+EPE_in_4 <- as.data.frame(function_c_4(n,lamdda,h))
+EPE_in_matrix_4 <- EOP_matrix_4[1:2]
+EPE_in_matrix_4 <- cbind(EPE_in_matrix_4,EPE_in_4)
+EPE_in_matrix_4
+
+```
+
+```{r}
+#show in a graph
+EPE_in_matrix_4$n_lam<- with(EPE_in_matrix_4, paste(N, Lambda),sep= " ")
+ggplot(data=EPE_in_matrix_4, aes(x=n_lam, y=V1, fill = n_lam)) + geom_bar(position=position_dodge(), stat="identity")+ ggtitle("OLS function by \n different N & Lambda \n EPE_in ")
+
+
+```
+
+
+*It can be seen that the bigger the Lambda the EPE_fold will be larger*
+
+
+```{r}
+#d:EPE
+set.seed(123)
+function_d_4 <- function(n,lamdda,h){
+  EPE <- NULL
+  for (n_i in n){
+    for (lamdda_i in lamdda){
+      x_sample <- sort(runif(n_i, -2, 2))
+      train_data <- sample_function(n_i,lamdda_i)
+      train_data_2 <- sample_function(n_i,lamdda_i)
+      sample <-lm(train_data$y ~ poly(train_data$x,2))
+      sample_2 <-lm(train_data_2$y ~ poly(train_data_2$x,2))
+      predict_y <- predict(sample)
+      predict_y_2 <- predict(sample_2)
+      new_mse <- mean((predict_y-predict_y_2)^2)
+      EPE<- rbind(EPE, c(new_mse))
+    }}
+    return(EPE)}
+   
+EPE_4 <- as.data.frame(function_d_4(n,lamdda,h))
+EPE_matrix_4 <- EOP_matrix_4[1:2]
+EPE_matrix_4 <- cbind(EPE_matrix_4,EPE_4)
+EPE_matrix_4
+```
+
+```{r}
+#show in a graph
+EPE_matrix_4$n_lam<- with(EPE_matrix_4, paste(N, Lambda),sep= " ")
+ggplot(data=EPE_matrix_4, aes(x=n_lam, y=V1, fill = n_lam)) + geom_bar(position=position_dodge(), stat="identity")+ ggtitle("OLS function by \n different N & Lambda \n EPE ")
+
+
+```
+
+
+*It can be seen that the smaller  the N the EPE will be larger*
+
+
+Q2:
+```{r}
+#prepare the data
+covid_data <- read_excel("data.xlsx")
+colnames(covid_data)[1] <- 'date'
+colnames(covid_data)[2] <- "new_cases"
+covid_data$date <- as.Date(covid_data$date)
+covid_data$index <- rownames(covid_data)
+
+covid_data$dates <- seq(as.Date('2020-02-12'), as.Date('2021-05-31'), by = 'days')
+
+covid_data <- covid_data %>% select(-c(1))
+
+```
+A:
+```{r}
+#the reggresion 
+local_reg <- loess(covid_data$new_cases ~ covid_data$index, data=covid_data, span=0.15) 
+#summary(local_reg)
+
+pred <- predict(local_reg)
+
+covid_data$pred <- pred
+
+p <- ggplot(covid_data, aes(x = dates, y = new_cases)) + geom_point(cex = 1) 
+p + geom_line(data=covid_data, aes(x=dates, y= pred),colour='blue') + ggtitle("New Covid Cases Per Day") + theme(plot.title = element_text(color="#993333", size=20, face="bold",hjust = 0.5))+ scale_x_date(date_labels = "%Y %B %d", date_breaks = "1 month")+ theme(text = element_text(size=9),
+        axis.text.x = element_text(angle=-50, hjust=0))
+```
+
+
+
+*We can see that during the end of February 2020 and the beginning of March 2020 the number of new cases per day is close to 0 (maybe due to the fact that not many corona tests were done in those days).The number of new cases per day reaches peaks in early April 2020 then in mid July 2020, then a very big peak at mid September 2020 and the biggest peak was in mid January 2021. After January 2021 we can see that the graph decreases rapidly - this is probably due to vaccination.*
+
+
+B:
+
+
+
+*Because Sampling performed daily, the first derivative is the difference between the number of cases on the previous day and the number of cases on the current day.*
+```{r}
+#prepare the data
+vec <- covid_data$new_cases
+vec <- diff(vec,lag=1)
+vec <- c(c(0),vec)
+covid_data <- covid_data %>% mutate(diff = vec)
+
+#the regression
+local_reg_2 <- loess(covid_data$diff ~ covid_data$index, data=covid_data, span=0.3) 
+#summary(local_reg_2)
+
+pred_2 <- predict(local_reg_2)
+
+covid_data$pred_2 <- pred_2
+
+p1 <- ggplot(covid_data, aes(x = dates, y = diff)) + geom_point(cex = 0.5) 
+p1 + geom_line(data=covid_data, aes(x=dates, y= pred_2),colour='blue') + ggtitle("Rate Of New Detections Per Day") + theme(plot.title = element_text(color="#993333", size=20, face="bold",hjust = 0.5))+ scale_x_date(date_labels = "%Y %B %d", date_breaks = "1 month")+ theme(text = element_text(size=9),
+        axis.text.x = element_text(angle=-50, hjust=0))
+
+```
+
+
+*As we have seen in the previous graph, the rate of change in the number of new detected per day is pretty constant.*
+
+
+```{r}
+
+y_train <- read.csv('train_resp.csv')
+y_train <- y_train[,-c(1)]
+
+
+x_train <- read.csv('feature_train.csv')
+x_train <- x_train[,-c(1)]
+
+x_valid <- read.csv('feature_valid.csv')
+x_valid <- x_valid[,-c(1)]
+
+
+```
+
+
+```{r}
+cat("The dimension of the y_train data is: ", dim(y_train)[1] ,"x", dim(y_train)[2])
+```
+
+```{r}
+cat("The dimension of the x_train data is: ", dim(x_train)[1] ,"x", dim(x_train)[2])
+```
+
+```{r}
+cat("The dimension of the x_valid data is: ", dim(x_valid)[1] ,"x", dim(x_valid)[2])
+```
+
+```{r} 
+
+load("train_stim_1_250.Rdata")
+load("train_stim_251_500.Rdata")
+load("train_stim_501_750.Rdata")
+load("train_stim_751_1000.Rdata")
+load("train_stim_1001_1250.Rdata")
+load("train_stim_1251_1500.Rdata")
+
+
+load("feature_pyramid.Rdata")
+wav_pyr_real <- as.matrix(wav_pyr_real)
+
+wav_pyr_im = as.matrix(wav_pyr_im)
+
+
+par(mfcol = c(1,2))
+image(t(matrix(wav_pyr_real[,2], nrow = 128)[128:1,]),col = grey.colors(100),main = "Real component")
+image(t(matrix(wav_pyr_im[,2], nrow = 128)[128:1,]),col = grey.colors(100),main = "Imaginary component")
+
+```
+
+
+
+***A***
+
+
+***fitting Ridge & Lasso Regression for all 3 voxels. We chose these models to fit our data because of the big amount of variables. Lasso and Ridge regression penalize the model with consideration of the amount of variables.***
+```{r}
+# Split data into training and testing datasets
+
+set.seed(123)
+
+index <-  sample(1:nrow(x_train), 0.2*nrow(x_train), replace = FALSE)
+
+test_obs <- x_train[index,]
+test_pred <- y_train[index,]
+train_obs <- x_train[-index,]
+train_pred <- y_train[-index,]
+  
+```
+
+```{r}
+#first we will check for the best fit for voxel V1. 
+V1 <- as.vector(train_pred$V1)
+
+# Setting alpha = 0 implements ridge regression
+ridge_v1 <- cv.glmnet(as.matrix(train_obs),V1 , type.measure="mse", alpha = 0, standardize = TRUE, nfolds = 10)
+
+# Setting alpha = 1 implements lasso regression
+lasso_v1 <- cv.glmnet(as.matrix(train_obs),V1 , type.measure="mse", alpha = 1, standardize = TRUE, nfolds = 10)
+
+
+MSE_ridge_min1 <- min(ridge_v1$cvm)
+MSE_lasso_min1 <- min(lasso_v1$cvm)
+
+paste(c('Lasso regression seem to be a better fit for V1 because of its lower MSE : ' , round(MSE_lasso_min1,3), "The MSE for Ridge regression in this case is : " , round(MSE_ridge_min1,3)))
+
+min_lambda_lasso1 <- lasso_v1$lambda.min
+
+paste(c('The optimal lambda that gives us the minimum MSE for Lasso regression in this case is : ' , round(min_lambda_lasso1,3)))
+
+```
+
+
+**Now we would check the MSPE for each model**
+```{r}
+
+set.seed(42)
+newX <- model.matrix(V1 ~.,data=test_obs)
+lasso_v1_pred <- predict(lasso_v1, s = lasso_v1$lambda.min, newx = newX)
+MSPE_L <- mean((test_pred$V1 - lasso_v1_pred)^2)
+paste(c('The MSPE of our Lasso model is : ' , round(MSPE_L,3)))
+
+```
+
+```{r}
+set.seed(42)
+newX <- model.matrix(V1 ~.,data=test_obs)
+min_lambda_ridge1 <- ridge_v1$lambda.min
+ridge_v1_pred <- predict(ridge_v1, s = min_lambda_ridge1, newx = newX)
+MSPE_R <- mean((test_pred$V1 - ridge_v1_pred)^2)
+
+
+
+paste(c('The MSPE of our Ridge model is : ' , round(MSPE_R,3)))
+paste(c('The optimal lambda that gives us the minimum MSE for Ridge regression in this case is : ' , round(min_lambda_ridge1,3)))
+```
+
+
+
+*In conclusion, we have a model (Ridge regression, lambda, etc). Now, we would fit a model for V2 and V3. Note that we would not include predictions or checks over our test set to this fit, if we get a higher MSE than we got in V1.*
+
+```{r}
+#Now we will check for the best fit for voxel V2. 
+V2 <- as.vector(train_pred$V2)
+
+ridge_v2 <- cv.glmnet(as.matrix(train_obs),V2 , alpha = 0, standardize = TRUE, nfolds = 10)
+
+lasso_v2 <- cv.glmnet(as.matrix(train_obs),V2 , alpha = 1, standardize = TRUE, nfolds = 10)
+
+MSE_ridge_min2 <- min(ridge_v2$cvm)
+MSE_lasso_min2 <- min(lasso_v2$cvm)
+
+paste(c('Lasso regression is a better fit for V2 because of its lower MSE : ' , round(MSE_lasso_min2 ,3), "The MSE for Ridge regression in this case is : " , round(MSE_ridge_min2 ,3)))
+
+min_lambda_lasso2 <- lasso_v2$lambda.min
+
+paste(c('The optimal lambda that gives us the minimum MSE for Lasso regression in this case is : ' , round(min_lambda_lasso2 ,3)))
+
+
+```
+
+```{r}
+#Now we will check for the best fit for voxel V3. 
+V3 <- as.vector(train_pred$V3)
+
+ridge_v3 <- cv.glmnet(as.matrix(train_obs),V3 , alpha = 0, standardize = TRUE, nfolds = 10)
+
+lasso_v3 <- cv.glmnet(as.matrix(train_obs),V3 , alpha = 1, standardize = TRUE, nfolds = 10)
+
+MSE_ridge_min3 <- min(ridge_v3$cvm)
+MSE_lasso_min3 <- min(lasso_v3$cvm)
+
+paste(c('Lasso regression is a better fit for V3 because of its lower MSE : ' , round(MSE_lasso_min3,4), "The MSE for Ridge regression in this case is : " , round(MSE_ridge_min3,4)))
+
+min_lambda_lasso3 <- lasso_v3$lambda.min
+
+paste(c('The optimal lambda that gives us the minimum MSE for Lasso regression in this case is : ' , round(min_lambda_lasso3,3)))
+```
+
+```{r}
+# Plot cross-validation results
+plot(ridge_v1, main = "v1")
+plot(lasso_v2, main = "v2")
+plot(lasso_v3, main = "v3")
+
+```
+
+
+
+**We see that our model works best for the 1st voxel with Lasso regression. We will analyze our results.**
+
+
+***B***
+
+
+**important features in a model**
+**To find the important features in the model, we will multiply the coefficients of Lasso model for voxel 1 by the SD of our x train matrix and choose the highest values.**
+```{r}
+#extract coefficients, column name in train set and sd of each column.
+betas <- as.data.frame(as.vector(coef(ridge_v1)))
+names(betas)[1] <- "coef"
+
+inter <- as.matrix(coef(ridge_v1))
+betas$inter <- row.names(inter)
+
+betas <- betas[-c(1),]
+
+
+betas$sd <- apply(test_obs, 2, sd)
+
+betas$mult <- betas$coef*betas$sd
+
+max_mult <- max(betas$mult)
+
+#We found that the single most important feature for our model is in column 1741 in x_train
+max_col <- test_obs$V1741
+  
+```
+
+
+```{r}
+
+ind <- which(betas$mult > 0.005) #choose 7 highest features
+
+#draw 4 highest without intercept
+par(mfcol = c(2,2))
+image(t(matrix(wav_pyr_real[,ind[1]], nrow = 128)[128:1,]),col = grey.colors(100),main = "Real component1")
+image(t(matrix(wav_pyr_real[,ind[2]], nrow = 128)[128:1,]),col = grey.colors(100),main = "Real component2")
+image(t(matrix(wav_pyr_real[,ind[3]], nrow = 128)[128:1,]),col = grey.colors(100),main = "Real component3")
+image(t(matrix(wav_pyr_real[,ind[4]], nrow = 128)[128:1,]),col = grey.colors(100),main = "Real component4")
+
+
+```
+
+
+*We see that most important features are located in the same place and are similar in shape and size. This means that shapes in this area predict the quality of the model for these significant components.*
+
+
+***Linearity of response***
+
+
+**Most important feature and its relation with the response**    
+*In this part, we will be checking the linear relation between the most important feature and the response. We can see there isn't a linear relation between them and therefore we will suggest a sqrt transformation at the next predictions mission.*
+```{r}
+
+V1 <- as.vector(y_train$V1)
+
+
+new_df <- data.frame(x_train$V1741, V1)
+names(new_df)[1] <- "best_feature"
+
+ggplot(new_df, aes(x = best_feature, y = V1)) + 
+  geom_point() +  
+  geom_smooth(method = "lm", se = FALSE, formula = y ~ x) + 
+  ggtitle("Response vs Most important feature -> V1741 ") + 
+  xlab("Most important feature") + ylab("Response") +
+  theme(plot.title = element_text(color="peachpuff3", size=18, face="bold"),axis.title.x = element_text(size=10, face="bold"),axis.title.y = element_text(size=10, face="bold"))
+
+
+```
+    
+    
+    
+**Graph of Response - sqrt transformation**  
+
+
+*After using the sqrt transformation we can see an improvement in the linear relationship.*
+```{r echo=FALSE}
+
+ggplot(new_df,aes(x=(sqrt(best_feature)), y=V1)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, formula = y ~ x) + 
+  ggtitle("Response vs Response vs Most important feature", subtitle = "sqrt transformation") +
+  xlab("Most important feature") + ylab("Response") +
+  theme(plot.title = element_text(color="peachpuff3", size=18, face="bold"),axis.title.x = element_text(size=10, face="bold"),axis.title.y = element_text(size=10, face="bold"))
+
+```
+
+
+**Graph of Response vs Predictions (excluding outliers)**  
+
+```{r, warning=FALSE}
+
+pred_resp <- data.frame(ridge_v1_pred, test_pred$V1)
+names(pred_resp)[1] <- "Predictions"
+names(pred_resp)[2] <- "V1"
+
+ggplot(pred_resp, aes(x = Predictions, y = V1)) + 
+  geom_point(outlier.shape = NA) + xlim(c(-1,1.5)) + #removing outliers
+  geom_smooth(method = "lm", se = FALSE, formula = y ~ x) + 
+  ggtitle("Response vs Predictions ") + ylab("Response") +
+  theme(plot.title = element_text(color="peachpuff3", size=18, face="bold"),axis.title.x = element_text(size=10, face="bold"),axis.title.y = element_text(size=10, face="bold"))
+
+```
+
+
+*As we can see, although we expected to get a more linear relation between the predictions and the responses in the test set, it seem that the relationship here is not as linear as we wanted it to be. We tried to make several transformations(log, sqrt, exp, etc) to the predictions and to the responses but failed to find a more linear relation. Note that, we can see a linear trend here, it is just not as linear as we wanted it to be. Moreover, we found that removing 2 outliers improves the linearity of the model.*
+
+
+
+**Images that get the highest predictions**
+
+
+*In these pictures the central object is painted in a variety of shades.*
+
+```{r}
+pred_resp_highest <- head(pred_resp[order(pred_resp$Predictions, decreasing = T),], 4)
+pred_resp_highest
+
+#images with highest predictions
+par(mfcol = c(2,2))
+pic_1381 <- image(t(matrix(train_stim_1251_1500[130,], nrow=128)[128:1,]),col = grey.colors(100))
+pic_1159 <- image(t(matrix(train_stim_1001_1250[159,], nrow=128)[128:1,]),col = grey.colors(100))
+pic_578 <- image(t(matrix(train_stim_501_750[78,], nrow=128)[128:1,]),col = grey.colors(100))
+pic_1021 <- image(t(matrix(train_stim_1001_1250[21,], nrow=128)[128:1,]),col = grey.colors(100))
+
+
+
+```
+
+
+**Images that get the lowest predictions**
+
+
+*These four images have a central object that is relatively uniformly colored.*
+```{r}
+pred_resp_worst <- head(pred_resp[order(pred_resp$Predictions, decreasing = F),], 4)
+pred_resp_worst
+
+#images with lowest predictions
+par(mfcol = c(2,2))
+pic_294 = image(t(matrix(train_stim_251_500[44,], nrow=128)[128:1,]),col = grey.colors(100))
+pic_69 = image(t(matrix(train_stim_1_250[69,], nrow=128)[128:1,]),col = grey.colors(100))
+pic_680 = image(t(matrix(train_stim_501_750[180,], nrow=128)[128:1,]),col = grey.colors(100))
+pic_1098 = image(t(matrix(train_stim_1001_1250[98,], nrow=128)[128:1,]),col = grey.colors(100))
+```
+
+
+***C***
+
+
+*As we found in 3.2 in the Linearity analysis, sqrt of the features improves the linearity of the model. We would creat the new models for the pixels with this improvement/addition.*
+```{r}
+model_v1 <- cv.glmnet(x = as.matrix(sqrt(x_train)), y = as.matrix(y_train[,1]), alpha = 0, nfolds = 10, type.measure = "mse")
+lambda_v1 <- model_v1$lambda.1se
+min_mse_v1 <- min(model_v1$cvm)
+model_v1_new <- glmnet(x = as.matrix(sqrt(x_train)), y = as.matrix(y_train[,1]), alpha = 0, nfolds = 10, lambda = lambda_v1)
+
+model_v2 <- cv.glmnet(x = as.matrix(sqrt(x_train)), y = as.matrix(y_train[,2]), alpha = 1, nfolds = 10, type.measure = "mse")
+lambda_v2 <- model_v2$lambda.1se
+min_mse_v2 <- min(model_v2$cvm)
+model_v2_new <- glmnet(x = as.matrix(sqrt(x_train)), y = as.matrix(y_train[,2]), alpha = 1, nfolds = 10, lambda = lambda_v2)
+
+                       
+model_v3 <- cv.glmnet(x = as.matrix(sqrt(x_train)), y = as.matrix(y_train[,3]), alpha = 1, nfolds = 10, type.measure = "mse")
+lambda_v3 <- model_v3$lambda.1se
+min_mse_v3 <- min(model_v3$cvm)
+model_v3_new <- glmnet(x = as.matrix(sqrt(x_train)), y = as.matrix(y_train[,3]), alpha = 1, nfolds = 10, lambda = lambda_v3)
+```
+
+
+*Creating the RSMPE for the data.*
+```{r}
+
+RMSPE <- cbind(min_mse_v1, min_mse_v2, min_mse_v3)
+colnames(RMSPE) <- c("V1","V2","V3")
+
+```
+
+
+*Creating the predictions for the valid data and saving as files*
+```{r}
+feature_predictions <- cbind(
+  predict(model_v1_new, as.matrix(x_valid)),
+  predict(model_v2_new, as.matrix(x_valid)),
+  predict(model_v3_new, as.matrix(x_valid))
+  )
+
+save(feature_predictions, RMSPE, file = "Feature_Results.RData")
+```
+

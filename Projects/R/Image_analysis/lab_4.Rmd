@@ -1,0 +1,297 @@
+---
+title: "lab_4"
+author: "Ofir Yosef and Ziv Parchi"
+output:
+  html_document: default
+---
+```{r,warning=FALSE, message=FALSE}
+library(R.utils)
+library(tidyverse)
+library(dplyr)
+library(tree)
+library(rpart)
+library(rpart.plot)
+library(caret)
+library(BBmisc)
+library(Hmisc)
+library(Epi)
+library(pROC)
+library(class)
+library(e1071)
+library(caTools)
+
+#install.packages("ISLR")
+
+```
+
+```{r,warning=FALSE, message=FALSE}
+# modification of https://gist.github.com/brendano/39760
+# automatically obtains data from the web
+# creates two data frames, test and train
+# labels are stored in the y variables of each data frame
+# can easily train many models using formula `y ~ .` syntax
+
+# download data from http://yann.lecun.com/exdb/mnist/
+#download.file("http://yann.lecun.com/exdb/mnist/train-images-idx3-ubyte.gz","train-images-idx3-ubyte.gz")
+#download.file("http://yann.lecun.com/exdb/mnist/train-labels-idx1-ubyte.gz","train-labels-idx1-ubyte.gz")
+#download.file("http://yann.lecun.com/exdb/mnist/t10k-images-idx3-ubyte.gz","t10k-images-idx3-ubyte.gz")
+#download.file("http://yann.lecun.com/exdb/mnist/t10k-labels-idx1-ubyte.gz","t10k-labels-idx1-ubyte.gz")
+
+# gunzip the files
+#R.utils::gunzip("train-images-idx3-ubyte.gz")
+#R.utils::gunzip("train-labels-idx1-ubyte.gz")
+#R.utils::gunzip("t10k-images-idx3-ubyte.gz")
+#R.utils::gunzip("t10k-labels-idx1-ubyte.gz")
+
+# helper function for visualization
+show_digit = function(arr784, col = gray(12:1 / 12), ...) {
+  image(matrix(as.matrix(arr784[-785]), nrow = 28)[, 28:1], col = col, ...)
+}
+
+# load image files
+load_image_file = function(filename) {
+  ret = list()
+  f = file(filename, 'rb')
+  readBin(f, 'integer', n = 1, size = 4, endian = 'big')
+  n    = readBin(f, 'integer', n = 1, size = 4, endian = 'big')
+  nrow = readBin(f, 'integer', n = 1, size = 4, endian = 'big')
+  ncol = readBin(f, 'integer', n = 1, size = 4, endian = 'big')
+  x = readBin(f, 'integer', n = n * nrow * ncol, size = 1, signed = FALSE)
+  close(f)
+  data.frame(matrix(x, ncol = nrow * ncol, byrow = TRUE))
+}
+
+# load label files
+load_label_file = function(filename) {
+  f = file(filename, 'rb')
+  readBin(f, 'integer', n = 1, size = 4, endian = 'big')
+  n = readBin(f, 'integer', n = 1, size = 4, endian = 'big')
+  y = readBin(f, 'integer', n = n, size = 1, signed = FALSE)
+  close(f)
+  y
+}
+
+# load images
+train = load_image_file("train-images-idx3-ubyte")
+test  = load_image_file("t10k-images-idx3-ubyte")
+# load labels
+train$y = as.factor(load_label_file("train-labels-idx1-ubyte"))
+test$y  = as.factor(load_label_file("t10k-labels-idx1-ubyte"))
+
+# view test image
+#show_digit(train[3, ])
+
+```
+
+```{r,warning=FALSE, message=FALSE}
+#filter only 3 and 8 digits
+
+filter_train <- train %>% filter(y == 3 | y==8)
+#sample only 4000 
+set.seed(1234)
+filter_train <- as.data.frame(filter_train[sample(nrow(filter_train),4000),])
+filter_test <- as.data.frame(test %>% filter(y == 3 | y==8))
+```
+Q.1:
+```{r,warning=FALSE, message=FALSE}
+#2 classifiers- logistic and tree
+#prepare the y to be logistic
+
+glm_train <- filter_train
+glm_train$y <- as.numeric(ifelse(test = filter_train$y ==3, yes = 1, no=0))
+glm_test <- filter_test
+glm_test$y <- as.numeric(ifelse(test = filter_test$y ==3, yes = 1, no=0))
+
+#building logistic regression
+logi_cla <- glm(y~., glm_train, family = "gaussian")
+```
+
+```{r,warning=FALSE, message=FALSE}
+#building a tree classifier model with many levels so we could get several thresholds from the roc function. 
+filter_train$y <- as.character(filter_train$y)
+tree_cla <- rpart(y~., filter_train, method = "class",cp= 0.002)
+rpart.plot(tree_cla)
+predicted_tree <- predict(tree_cla, filter_test)
+```
+
+Q.2:
+```{r,warning=FALSE, message=FALSE}
+# write a function that calculate the confusion matrix, precision and recall
+set.seed(1234)
+confusion_function <- function(model, data_test,y_test, data_train,y_train){
+  predictions <- predict(model, data_test)
+  pred <- as.data.frame(ifelse(predictions > 0.5, yes = 3, no = 8))
+  confusion_matrix <- table(pred[,1], y_test)
+  confusion_matrix <- confusion_matrix[, colSums(confusion_matrix != 0) > 0]
+  precision <- confusion_matrix[1]/(confusion_matrix[1]+confusion_matrix[3])
+  recall <- confusion_matrix[1]/(confusion_matrix[1]+confusion_matrix[2])
+  accuracy_test <- (confusion_matrix[1]+confusion_matrix[4])/(confusion_matrix[1]+confusion_matrix[4]+confusion_matrix[2]+confusion_matrix[3])
+  
+  predictions <- predict(model, data_train)
+  pred <- as.data.frame(ifelse(predictions < 0.5, yes = 3, no = 8))
+  confusion_matrix_2 <- table(pred[,1], y_train)
+   confusion_matrix_2 <- confusion_matrix_2[, colSums(confusion_matrix_2 != 0) > 0]
+  accuracy_train <- (confusion_matrix_2[1]+confusion_matrix_2[4])/(confusion_matrix_2[1]+confusion_matrix_2[4]+confusion_matrix_2[2]+confusion_matrix_2[3])
+  
+  print("The confusion matrix")
+  print(as.table(confusion_matrix))
+  paste("The precision", round(precision,3),"The recall", round(recall,3),"The accuracy test", round(accuracy_test,3),"The accuracy train", round(accuracy_train,3) )
+}
+#check the logist model
+data_test <- filter_test[,-785]
+data_train <- filter_train[,-785]
+
+print("The logist model")
+confusion_function(logi_cla,data_test, filter_test$y, data_train,glm_train$y)
+
+```
+
+
+
+*It can be seen that the accuracy of the train is 0.99 against the accuracy of the test that is 0.97, so there is a little overfitting but it is very small so it is not influential.*
+
+
+
+```{r,warning=FALSE, message=FALSE}
+set.seed(1234)
+#check the tree model
+print("The tree model")
+confusion_function(tree_cla,data_test, filter_test$y,data_train,glm_train$y)
+```
+
+
+
+
+*It can be seen that the accuracy of the train is 0.98 against the accuracy of the test that is 0.96, so there is a little overfitting but it very small so it is not influential.*
+
+
+
+Q.3:
+```{r,warning=FALSE, message=FALSE}
+# creating the ROC function 
+roc_fun <- function(model,data_test,y_test){
+h <- seq(0.01,0.99,0.01)
+TPR <-c()
+FPR <-c()
+for(thre in h){
+  predictions <- predict(model, data_test)
+  pred <- as.data.frame(ifelse(predictions > thre, yes = 3, no = 8))
+  confusion_matrix <- table(pred[,1], y_test)
+  confusion_matrix <- confusion_matrix[, colSums(confusion_matrix != 0) > 0]
+  TPR <- cbind(TPR,confusion_matrix[1]/(confusion_matrix[1]+confusion_matrix[2]))
+ FPR <- cbind(FPR,confusion_matrix[3]/(confusion_matrix[3]+confusion_matrix[4]))
+}
+data_f <- data.frame(TPR=c(TPR),FPR=c(FPR), tresh = c(h))
+data_f[is.na(data_f)] <- 0
+return(data_f)
+}
+
+```
+
+```{r,warning=FALSE, message=FALSE}
+ #creating a funtion that finds the best threshold.  
+find_tresh <- function(data){
+  h_tresh <- c()
+  h_best <- c()
+  for (i in 1:99){
+    h_tresh <- rbind(h_tresh,data$TPR[i]-data$FPR[i])
+    h_best <- rbind(h_best,data$tresh[i])
+  }
+  join_data <- as.data.frame(cbind(h_tresh,h_best))
+  maxi <- max(join_data$V1)
+  h_trh <-join_data %>% filter(V1== maxi) 
+ print(h_trh)
+}
+
+```
+
+```{r,warning=FALSE, message=FALSE}
+# Running ROC function for both models. 
+data_g <-roc_fun(logi_cla, data_test, filter_test$y)
+data_t <-roc_fun(tree_cla, data_test, filter_test$y)
+
+# Finding the best threshold for our models. 
+h_glm <- find_tresh(data_g)
+h_tree <- find_tresh(data_t)
+
+hh_glm <- data_g %>% filter(tresh==0.46)
+hh_tree <- data_t %>% filter(tresh==0.66)
+
+sp2 <- ggplot() + 
+  geom_line(data = data_g, aes(x = FPR, y = TPR), color = "blue") + geom_line(data = data_t, aes(x = FPR, y = TPR), color = "red")+ggtitle("Tree model is red \n Glm model is blue")+ geom_point(data = hh_glm, aes(x = FPR, y = TPR), color = "blue",size = 3)+geom_point(data = hh_tree, aes(x = FPR, y = TPR), color = "red",size = 3)
+
+library(grid)
+# Create a text
+grob <- grobTree(textGrob("best tresh glm  model is 0.46", x=0.2,  y=0.8, hjust=0,
+  gp=gpar(col="blue", fontsize=8, fontface="italic")))
+grob2 <- grobTree(textGrob("best tresh tree model is 0.66", x=0.3,  y=0.7, hjust=0,
+  gp=gpar(col="red", fontsize=8, fontface="italic")))
+# Plot
+s <- sp2 + annotation_custom(grob)
+s+annotation_custom(grob2)
+```
+*כמו שניתן לראות,הגרף של המודל של הרגרסיה הלוגיסטית נמצא מעל הגרף של המודל קלסיפיקציה של העצים. אם כן, יש יותר שטח מתחת לגרף הכחול מאשר מתחת לגרף האדום ולכן המודל הלוגיסטי טוב יותר.*
+
+Q.4:
+*Display Four examples that were classified incorrectly. We will choose examples from the Tree Classifier Model since it has the lower accuracy.*
+```{r,warning=FALSE, message=FALSE}
+set.seed(1234)
+predictions <- predict(tree_cla, data_train)
+pred <- as.data.frame(ifelse(predictions < 0.5, yes = "yes", no = "no"))
+y_train <- as.data.frame(filter_train$y)
+pred$y_train <- y_train$`filter_train$y`
+pred$index <- row.names(y_train)
+
+worng_clas_3 <- pred %>% filter(pred$`8` == "yes" & pred$y_train == 3)%>%  sample_n(2) # the index at the train data are 1120 and 3497
+
+worng_clas_8 <- pred %>% filter(pred$`3` == "yes" & pred$y_train == 8)%>%  sample_n(2) # the index at the train data are 1513 and 3527
+
+print("The true value is 3 the the predict value is 8")
+show_digit(filter_train[1120,])
+show_digit(filter_train[3497,])
+print("The true value is 8 tns the predict value is 3")
+show_digit(filter_train[3592,])
+show_digit(filter_train[380,])
+```
+
+
+
+*ניתן לראות בדוגמאות הללו כי הספרה אינה נמצאת באמצע התמונה, ייתכן שזו אחת הבעיות שגרמו לשגיאה בחיזוי מכיוון שהפיקסלים במקום שונה.
+בנוסף ניתן לראות כי חלק מהתמונות בעלות קו קהה יותר, כלומר יש יותר פיקסלים שחורים מאשר בכאלו עם קו דק, יתכן שזהו עוד גורם שגרם לחיזוי השגוי. *
+
+
+
+Q.5:
+```{r,warning=FALSE, message=FALSE}
+# נחליף את הדאטה- אם בדאטה המקורית 1 סימל לבן ו255 שחור אז נחסר הכל ב255 בערך מוחלט וככה נקבל תמונה הפוכה
+filter_train_black <-  data_train
+filter_train_black <- abs(255- filter_train_black)
+filter_train_black$y <- filter_train$y
+filter_test_black <-  data_test
+filter_test_black <- abs(255- filter_test_black)
+filter_test_black$y <- filter_test$y
+
+# show exmpale of the black data
+show_digit(filter_train_black[3, ])
+```
+
+```{r,warning=FALSE, message=FALSE}
+#check cy the logist regression
+data_test_b <- filter_test_black[,-785]
+data_train_b <- filter_train_black[,-785]
+glm_train_b <- filter_train_black
+glm_train_b$y <- as.numeric(ifelse(test = filter_train_black$y ==3, yes = 1, no=0))
+logi_cla_b <- glm(y~., glm_train_b, family = "gaussian")
+
+print("The logist black model")
+confusion_function(logi_cla_b,data_test_b, filter_test_black$y,data_train_b,filter_train_black$y)
+
+print("The logist white model")
+confusion_function(logi_cla,data_test, filter_test$y, data_train,filter_train$y)
+
+
+```
+
+*It can be seen that the classifiers of the black model works almost the same like the white model.*
+
+*נציין כי הרצנו בשאלה זו את הבדיקה על מודל הקלסיפיקציה הלוגיסטי ולא את המודל השני משום שהם יחסית דומים בתוצאות שלהם ולכן אין צורך להריץ את שניהם. נראה שהמודלים יוכלו לזהות את המספרים הללו בצורה טובה כמעט כמו המודל עבור התמונות ההפוכות.*

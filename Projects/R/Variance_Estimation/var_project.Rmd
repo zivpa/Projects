@@ -1,0 +1,556 @@
+---
+title: "variance"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r}
+library(readxl)
+library(dplyr)
+library(pander)
+library(rio)
+
+#install.packages("rio")
+```
+
+# Part 1
+
+```{r}
+work_data <- read_excel("C:/Users/zivpa/OneDrive/שולחן העבודה/variance/var_data.xlsx")
+work_data <- na.omit(work_data)
+work_data <- work_data[-1,]
+colnames(work_data) <- c("city", "apt_num", "room_num", "people_num", "gender", "working_hours", "age", "code", "weight")
+
+```
+
+
+```{r}
+
+work_data$female <- ifelse(test = work_data$gender == 2 & work_data$age > 14 , yes = 1, no = 0)
+work_data$male <- ifelse(test = work_data$gender == 1 & work_data$age > 14 , yes = 1, no = 0)
+work_data$all <- work_data$female + work_data$male
+
+work_data$belongs <- ifelse(test = work_data$code < 5 , yes = 1, no = 0)
+work_data$not_belongs <- ifelse(test = work_data$code > 4 , yes = 1, no = 0)
+work_data$working <- ifelse(test = work_data$code < 4 , yes = 1, no = 0)
+work_data$not_working <- ifelse(test = work_data$code == 4 , yes = 1, no = 0)
+
+work_data$belonging_male <- ifelse(test = work_data$code < 5 & work_data$gender == 1, yes = 1, no = 0)
+work_data$not_belonging_male <- ifelse(test = work_data$code > 4 & work_data$gender == 1 , yes = 1, no = 0)
+work_data$working_male <- ifelse(test = work_data$code < 4 & work_data$gender == 1 , yes = 1, no = 0)
+work_data$not_working_male <- ifelse(test = work_data$code == 4 & work_data$gender == 1 , yes = 1, no = 0)
+
+work_data$belonging_female <- ifelse(test = work_data$code < 5 & work_data$gender == 2, yes = 1, no = 0)
+work_data$not_belonging_female <- ifelse(test = work_data$code > 4 & work_data$gender == 2 , yes = 1, no = 0)
+work_data$working_female <- ifelse(test = work_data$code < 4 & work_data$gender == 2 , yes = 1, no = 0)
+work_data$not_working_female <- ifelse(test = work_data$code == 4 & work_data$gender == 2 , yes = 1, no = 0)
+
+```
+
+```{r}
+
+fixed_data <- aggregate(list(as.numeric(work_data$working_hours), work_data$male, work_data$female, work_data$all , work_data$belongs, work_data$not_belongs,  work_data$working, work_data$not_working, work_data$belonging_male, work_data$not_belonging_male, work_data$working_male, work_data$not_working_male, work_data$belonging_female, work_data$not_belonging_female, work_data$working_female, work_data$not_working_female), by = list(work_data$city, as.numeric(work_data$apt_num), work_data$room_num, work_data$people_num, round(as.numeric(work_data$weight), 4)), sum)
+colnames(fixed_data) <- c("city", "apt_num", "room_num", "people_num","weights", "working_hours","tot_males_over15", "tot_females_over15","all", "belonging","not_belonging", "working", "not_working", "belonging_male", "not_belonging_male",  "working_male", "not_working_male",  "belonging_female", "not_belonging_female",  "working_female", "not_working_female")
+
+fixed_data <- fixed_data %>% arrange(city, apt_num) 
+
+
+
+```
+
+# Part 2: 
+
+
+**Q1**
+
+```{r}
+df1 <- fixed_data %>% mutate(tot_est = fixed_data$belonging * weights)
+total_belonging_est <- round(sum(df1$tot_est))
+paste("The total estimation of belonging male is:", total_belonging_est)
+
+
+df1 <- df1 %>% mutate(male_est = fixed_data$belonging_male * weights)
+male_belonging_est <- round(sum(df1$male_est))
+paste("The total estimation of belonging male is:", male_belonging_est)
+
+
+df1 <- df1 %>% mutate(female_est = fixed_data$belonging_female * weights)
+female_belonging_est <- round(sum(df1$female_est))
+paste("The total estimation of belonging male is:", female_belonging_est)
+
+#presentation
+population_type <- c("Total", "Men", "Women")
+labor_force_est <- data.frame(population_type = population_type, Y_hat =  c(total_belonging_est,male_belonging_est, female_belonging_est))
+pander(labor_force_est)
+
+```
+
+
+**Q2**
+
+```{r}
+df2 <- df1 %>% mutate(tot_pop = fixed_data$all * weights)
+sum_total <- sum(df2$tot_pop)
+belong_tot_perc <- total_belonging_est/sum_total
+  
+
+df2 <- df1 %>% mutate(weight_pop_male = fixed_data$tot_males_over15 * weights)
+sum_tot_male <- sum(df2$weight_pop_male)
+belong_tot_perc_male <- male_belonging_est/sum_tot_male
+  
+
+df2 <- df1 %>% mutate(weight_pop_female = fixed_data$tot_females_over15 * weights)
+sum_tot_female <- sum(df2$weight_pop_female)
+belong_tot_perc_female <- female_belonging_est/sum_tot_female
+
+
+#presentation
+labor_force <- data.frame(population_type = population_type,Y_hat = c(belong_tot_perc, belong_tot_perc_male, belong_tot_perc_female))
+pander(labor_force)
+
+```
+
+
+
+**Q3**
+
+```{r}
+df3 <- df2 %>% mutate(tot_not_working = fixed_data$not_working * weights)
+sum_tot_not_working <- sum(df3$tot_not_working)
+not_working_tot_perc <- sum_tot_not_working/total_belonging_est
+  
+
+df3 <- df2 %>% mutate(tot_not_working_male = fixed_data$not_working_male * weights)
+sum_not_working_male <- sum(df3$tot_not_working_male)
+not_working_male_perc <- sum_not_working_male/male_belonging_est
+  
+
+df3 <- df2 %>% mutate(tot_not_working_female = fixed_data$not_working_female * weights)
+sum_not_working_female <- sum(df3$tot_not_working_female)
+not_working_female_perc <- sum_not_working_female/female_belonging_est
+
+
+#presentation
+labor_force <- data.frame(population_type = population_type,Y_hat = c(not_working_tot_perc, not_working_male_perc, not_working_female_perc))
+pander(labor_force)
+
+```
+
+
+**Q4**
+
+```{r}
+df4 <- df3 %>% mutate(tot_working_hours = fixed_data$working_hours * weights)
+df4 <- df4 %>% mutate(tot_workers = fixed_data$working * weights)
+
+sum_working_hours <- sum(df4$tot_working_hours)
+sum_workers <- sum(df4$tot_workers)
+
+
+  
+paste("The average estimation of woking hours per weak is:", round(sum_working_hours/sum_workers, 2))
+
+```
+
+
+```{r}
+export(fixed_data, "variance_estimation.xlsx")
+```
+
+
+
+*חלוקה לתתי מדגם לפי ערים*
+
+```{r}
+jerusalem_df <- fixed_data %>% filter(city == 3000)
+tlv_df <- fixed_data %>% filter(city == 5000)
+haifa_df <- fixed_data %>% filter(city == 4000)
+haifa_df <- haifa_df[-1,]
+
+c1 <- rep(c(1,2,3,4,5), length(jerusalem_df$city)/5)
+c2 <- rep(c(1,2,3,4,5), length(tlv_df$city)/5)
+c3 <- rep(c(1,2,3,4,5), length(haifa_df$city)/5)
+
+jerusalem_df$sub <- c1
+tlv_df$sub <- c2
+haifa_df$sub <- c3
+
+full_data <- full_join(jerusalem_df, tlv_df)
+full_data <- full_join(full_data, haifa_df)
+
+group_1 <- full_data %>% filter(sub == 1)
+group_2 <- full_data %>% filter(sub == 2)
+group_3 <- full_data %>% filter(sub == 3)
+group_4 <- full_data %>% filter(sub == 4)
+group_5 <- full_data %>% filter(sub == 5)
+
+JK_data1 <- full_data %>% filter(sub != 1)
+JK_data2 <- full_data %>% filter(sub != 2)
+JK_data3 <- full_data %>% filter(sub != 3)
+JK_data4 <- full_data %>% filter(sub != 4)
+JK_data5 <- full_data %>% filter(sub != 5)
+
+```
+
+#Variance estimation
+
+**Q1**
+#שיטת קבוצות מקריות
+```{r}
+
+#total
+random_tot_estimation <- rbind(
+  round(sum(group_1$belonging * group_1$weights * 5)),
+  round(sum(group_2$belonging * group_2$weights * 5)),
+  round(sum(group_3$belonging * group_3$weights * 5)),
+  round(sum(group_4$belonging * group_4$weights * 5)),
+  round(sum(group_5$belonging * group_5$weights * 5)))
+
+Var_random_tot1 <- sum((random_tot_estimation - mean(random_tot_estimation))^2)/20
+sd_random_tot1 <- sqrt(Var_random_tot1)
+se_random_tot1 <- sd_random_tot1/total_belonging_est
+
+
+#male
+random_male_estimation <- rbind(
+  round(sum(group_1$belonging_male * group_1$weights * 5)),
+  round(sum(group_2$belonging_male * group_2$weights * 5)),
+  round(sum(group_3$belonging_male * group_3$weights * 5)),
+  round(sum(group_4$belonging_male * group_4$weights * 5)),
+  round(sum(group_5$belonging_male * group_5$weights * 5)))
+
+Var_random_male1 <- sum((random_male_estimation - mean(random_male_estimation))^2)/20
+sd_random_male1 <- sqrt(Var_random_male1)
+se_random_male1 <- sd_random_male1/male_belonging_est
+
+
+#female
+random_female_estimation <- rbind(
+  round(sum(group_1$belonging_female * group_1$weights * 5)),
+  round(sum(group_2$belonging_female * group_2$weights * 5)),
+  round(sum(group_3$belonging_female * group_3$weights * 5)),
+  round(sum(group_4$belonging_female * group_4$weights * 5)),
+  round(sum(group_5$belonging_female * group_5$weights * 5)))
+
+Var_random_female1 <- sum((random_female_estimation - mean(random_female_estimation))^2)/20
+sd_random_female1 <- sqrt(Var_random_female1)
+se_random_female1 <- sd_random_female1/female_belonging_est
+
+
+
+
+names <- c("Variance", "SD", "SE")
+random_est1 <- data.frame(Random = names , total =  c(Var_random_tot1, sd_random_tot1,se_random_tot1), male =  c(Var_random_male1, sd_random_male1,se_random_male1), female =  c(Var_random_female1, sd_random_female1,se_random_female1))
+
+pander(random_est1)
+
+```
+
+#Jacknife
+```{r}
+
+#total
+jk_tot_estimation <- rbind(
+  round(sum(JK_data1$belonging * JK_data1$weights * 5/4)),
+  round(sum(JK_data2$belonging * JK_data2$weights * 5/4)),
+  round(sum(JK_data3$belonging * JK_data3$weights * 5/4)),
+  round(sum(JK_data4$belonging * JK_data4$weights * 5/4)),
+  round(sum(JK_data5$belonging * JK_data5$weights * 5/4)))
+
+Var_jk_tot1 <- sum((jk_tot_estimation - mean(jk_tot_estimation))^2)*4/5
+sd_jk_tot1 <- sqrt(Var_jk_tot1)
+se_jk_tot1 <- sd_jk_tot1/total_belonging_est
+
+
+#male
+jk_male_estimation <- rbind(
+  round(sum(JK_data1$belonging_male * JK_data1$weights * 5/4)),
+  round(sum(JK_data2$belonging_male * JK_data2$weights * 5/4)),
+  round(sum(JK_data3$belonging_male * JK_data3$weights * 5/4)),
+  round(sum(JK_data4$belonging_male * JK_data4$weights * 5/4)),
+  round(sum(JK_data5$belonging_male * JK_data5$weights * 5/4)))
+
+Var_jk_male1 <- sum((jk_male_estimation - mean(jk_male_estimation))^2)*4/5
+sd_jk_male1 <- sqrt(Var_jk_male1)
+se_jk_male1 <- sd_jk_male1/male_belonging_est
+
+
+#female
+jk_female_estimation <- rbind(
+  round(sum(JK_data1$belonging_female * JK_data1$weights * 5/4)),
+  round(sum(JK_data2$belonging_female * JK_data2$weights * 5/4)),
+  round(sum(JK_data3$belonging_female * JK_data3$weights * 5/4)),
+  round(sum(JK_data4$belonging_female * JK_data4$weights * 5/4)),
+  round(sum(JK_data5$belonging_female * JK_data5$weights * 5/4)))
+
+Var_jk_female1 <- sum((jk_female_estimation - mean(jk_female_estimation))^2)*4/5
+sd_jk_female1 <- sqrt(Var_jk_female1)
+se_jk_female1 <- sd_jk_female1/female_belonging_est
+
+
+
+
+JK_est1 <- data.frame(Jacknife = names , total =  c(Var_jk_tot1, sd_jk_tot1, se_jk_tot1), male =  c(Var_jk_male1, sd_jk_male1, se_jk_male1), female =  c(Var_jk_female1, sd_jk_female1,se_jk_female1))
+
+pander(JK_est1)
+
+```
+
+
+
+**Q2**
+
+#שיטת קבוצות מקריות
+```{r}
+
+#total
+random_belong_tot_perc <- random_tot_estimation / rbind(
+  round(sum(group_1$all * group_1$weights * 5)),
+  round(sum(group_2$all * group_2$weights * 5)),
+  round(sum(group_3$all * group_3$weights * 5)),
+  round(sum(group_4$all * group_4$weights * 5)),
+  round(sum(group_5$all * group_5$weights * 5)))
+
+
+Var_random_tot2 <- sum((random_belong_tot_perc - mean(random_belong_tot_perc))^2)/20
+sd_random_tot2 <- sqrt(Var_random_tot2)
+se_random_tot2 <- sd_random_tot2/belong_tot_perc
+
+
+#male
+random_belong_tot_perc_male <- random_male_estimation / rbind(
+  round(sum(group_1$tot_males_over15 * group_1$weights * 5)),
+  round(sum(group_2$tot_males_over15 * group_2$weights * 5)),
+  round(sum(group_3$tot_males_over15 * group_3$weights * 5)),
+  round(sum(group_4$tot_males_over15 * group_4$weights * 5)),
+  round(sum(group_5$tot_males_over15 * group_5$weights * 5)))
+
+Var_random_male2 <- sum((random_belong_tot_perc_male - mean(random_belong_tot_perc_male))^2)/20
+sd_random_male2 <- sqrt(Var_random_male2)
+se_random_male2 <- sd_random_male2/belong_tot_perc_male
+
+
+
+#female
+random_belong_tot_perc_female <- random_female_estimation / rbind(
+  round(sum(group_1$tot_females_over15 * group_1$weights * 5)),
+  round(sum(group_2$tot_females_over15 * group_2$weights * 5)),
+  round(sum(group_3$tot_females_over15 * group_3$weights * 5)),
+  round(sum(group_4$tot_females_over15 * group_4$weights * 5)),
+  round(sum(group_5$tot_females_over15 * group_5$weights * 5)))
+
+Var_random_female2 <- sum((random_belong_tot_perc_female - mean(random_belong_tot_perc_female))^2)/20
+sd_random_female2 <- sqrt(Var_random_female2)
+se_random_female2 <- sd_random_female2/belong_tot_perc_female
+
+
+random_est2 <- data.frame(Random = names , Total =  c(Var_random_tot2, sd_random_tot2,se_random_tot2), Male =  c(Var_random_male2, sd_random_male2,se_random_male2), Female =  c(Var_random_female2, sd_random_female2, se_random_female2))
+
+pander(random_est2)
+
+```
+
+
+#Jacknife
+
+```{r}
+#total
+jk_belong_tot_perc <- jk_tot_estimation / rbind(
+  round(sum(JK_data1$all * JK_data1$weights * 5/4)),
+  round(sum(JK_data2$all * JK_data2$weights * 5/4)),
+  round(sum(JK_data3$all * JK_data3$weights * 5/4)),
+  round(sum(JK_data4$all * JK_data4$weights * 5/4)),
+  round(sum(JK_data5$all * JK_data5$weights * 5/4)))
+
+
+Var_jk_tot2 <- sum((jk_belong_tot_perc - mean(jk_belong_tot_perc))^2)*4/5
+sd_jk_tot2 <- sqrt(Var_jk_tot2)
+se_jk_tot2 <- sd_jk_tot2/belong_tot_perc
+
+
+#male
+jk_belong_male_perc <- jk_male_estimation / rbind(
+  round(sum(JK_data1$tot_males_over15 * JK_data1$weights * 5/4)),
+  round(sum(JK_data2$tot_males_over15 * JK_data2$weights * 5/4)),
+  round(sum(JK_data3$tot_males_over15 * JK_data3$weights * 5/4)),
+  round(sum(JK_data4$tot_males_over15 * JK_data4$weights * 5/4)),
+  round(sum(JK_data5$tot_males_over15 * JK_data5$weights * 5/4)))
+
+
+Var_jk_male2 <- sum((jk_belong_male_perc - mean(jk_belong_male_perc))^2)*4/5
+sd_jk_male2 <- sqrt(Var_jk_male2)
+se_jk_male2 <- sd_jk_male2/belong_tot_perc_male
+
+
+#female
+jk_belong_female_perc <- jk_female_estimation / rbind(
+  round(sum(JK_data1$tot_females_over15 * JK_data1$weights * 5/4)),
+  round(sum(JK_data2$tot_females_over15 * JK_data2$weights * 5/4)),
+  round(sum(JK_data3$tot_females_over15 * JK_data3$weights * 5/4)),
+  round(sum(JK_data4$tot_females_over15 * JK_data4$weights * 5/4)),
+  round(sum(JK_data5$tot_females_over15 * JK_data5$weights * 5/4)))
+
+
+Var_jk_female2 <- sum((jk_belong_female_perc - mean(jk_belong_female_perc))^2)*4/5
+sd_jk_female2 <- sqrt(Var_jk_female2)
+se_jk_female2 <- sd_jk_female2/belong_tot_perc_female
+
+JK_est2 <- data.frame(Jacknife = names , total =  c(Var_jk_tot2, sd_jk_tot2, se_jk_tot2), male =  c(Var_jk_male2, sd_jk_male2, se_jk_male2), female =  c(Var_jk_female2, sd_jk_female2,se_jk_female2))
+
+pander(JK_est2)
+
+```
+
+**Q3**
+
+#שיטת קבוצות מקריות
+```{r}
+
+#total
+random_not_working_tot_perc <- rbind(
+  round(sum(group_1$not_working * group_1$weights * 5)),
+  round(sum(group_2$not_working * group_2$weights * 5)),
+  round(sum(group_3$not_working * group_3$weights * 5)),
+  round(sum(group_4$not_working * group_4$weights * 5)),
+  round(sum(group_5$not_working * group_5$weights * 5))) / random_tot_estimation 
+
+
+Var_random_tot3 <- sum((random_not_working_tot_perc - mean(random_not_working_tot_perc))^2)/20
+sd_random_tot3 <- sqrt(Var_random_tot3)
+se_random_tot3 <- sd_random_tot3/not_working_tot_perc
+
+
+#male
+random_not_working_male_perc <- rbind(
+  round(sum(group_1$not_working_male * group_1$weights * 5)),
+  round(sum(group_2$not_working_male * group_2$weights * 5)),
+  round(sum(group_3$not_working_male * group_3$weights * 5)),
+  round(sum(group_4$not_working_male * group_4$weights * 5)),
+  round(sum(group_5$not_working_male * group_5$weights * 5))) / random_male_estimation 
+
+
+Var_random_male3 <- sum((random_not_working_male_perc - mean(random_not_working_male_perc))^2)/20
+sd_random_male3 <- sqrt(Var_random_male3)
+se_random_male3 <- sd_random_male3/not_working_male_perc
+
+
+#female
+random_not_working_female_perc <- rbind(
+  round(sum(group_1$not_working_female * group_1$weights * 5)),
+  round(sum(group_2$not_working_female * group_2$weights * 5)),
+  round(sum(group_3$not_working_female * group_3$weights * 5)),
+  round(sum(group_4$not_working_female * group_4$weights * 5)),
+  round(sum(group_5$not_working_female * group_5$weights * 5))) / random_female_estimation 
+
+
+Var_random_female3 <- sum((random_not_working_female_perc - mean(random_not_working_female_perc))^2)/20
+sd_random_female3 <- sqrt(Var_random_female3)
+se_random_female3 <- sd_random_female3/not_working_female_perc
+
+random_est3 <- data.frame(Random = names , Total =  c(Var_random_tot3, sd_random_tot3,se_random_tot3), Male =  c(Var_random_male3, sd_random_male3,se_random_male3), Female =  c(Var_random_female3, sd_random_female3, se_random_female3))
+
+pander(random_est3)
+
+```
+
+#Jacknife
+```{r}
+
+#total
+jk_not_working_tot_perc <- rbind(
+  round(sum(JK_data1$not_working * JK_data1$weights * 5/4)),
+  round(sum(JK_data2$not_working * JK_data2$weights * 5/4)),
+  round(sum(JK_data3$not_working * JK_data3$weights * 5/4)),
+  round(sum(JK_data4$not_working * JK_data4$weights * 5/4)),
+  round(sum(JK_data5$not_working * JK_data5$weights * 5/4))) / jk_tot_estimation 
+
+
+Var_jk_tot3 <- sum((jk_not_working_tot_perc - mean(jk_not_working_tot_perc))^2)*4/5
+sd_jk_tot3 <- sqrt(Var_jk_tot3)
+se_jk_tot3 <- sd_jk_tot3/not_working_tot_perc
+
+
+#male
+jk_not_working_male_perc <- rbind(
+  round(sum(JK_data1$not_working_male * JK_data1$weights * 5/4)),
+  round(sum(JK_data2$not_working_male * JK_data2$weights * 5/4)),
+  round(sum(JK_data3$not_working_male * JK_data3$weights * 5/4)),
+  round(sum(JK_data4$not_working_male * JK_data4$weights * 5/4)),
+  round(sum(JK_data5$not_working_male * JK_data5$weights * 5/4))) / jk_male_estimation 
+
+
+Var_jk_male3 <- sum((jk_not_working_male_perc - mean(jk_not_working_male_perc))^2)*4/5
+sd_jk_male3 <- sqrt(Var_jk_male3)
+se_jk_male3 <- sd_jk_male3/not_working_male_perc
+
+
+#female
+jk_not_working_female_perc <- rbind(
+  round(sum(JK_data1$not_working_female * JK_data1$weights * 5/4)),
+  round(sum(JK_data2$not_working_female * JK_data2$weights * 5/4)),
+  round(sum(JK_data3$not_working_female * JK_data3$weights * 5/4)),
+  round(sum(JK_data4$not_working_female * JK_data4$weights * 5/4)),
+  round(sum(JK_data5$not_working_female * JK_data5$weights * 5/4))) / jk_female_estimation 
+
+
+Var_jk_female3 <- sum((jk_not_working_female_perc - mean(jk_not_working_female_perc))^2)*4/5
+sd_jk_female3 <- sqrt(Var_jk_female3)
+se_jk_female3 <- sd_jk_female3/not_working_female_perc
+
+jk_est3 <- data.frame(Jacknife = names , Total =  c(Var_jk_tot3, sd_jk_tot3, se_jk_tot3), Male =  c(Var_jk_male3, sd_jk_male3,se_jk_male3), Female =  c(Var_jk_female3, sd_jk_female3, se_jk_female3))
+
+pander(jk_est3)
+
+```
+
+
+
+
+
+**Q4**
+
+#שיטת קבוצות מקריות
+```{r}
+random_working_avg <- rbind(
+  round(sum(group_1$working_hours * group_1$weights * 5)/sum(group_1$working * group_1$weights * 5)),
+  round(sum(group_2$working_hours * group_2$weights * 5)/sum(group_2$working * group_2$weights * 5)),
+  round(sum(group_3$working_hours * group_3$weights * 5)/sum(group_3$working * group_3$weights * 5)),
+  round(sum(group_4$working_hours * group_4$weights * 5)/sum(group_4$working * group_4$weights * 5)),
+  round(sum(group_5$working_hours * group_5$weights * 5)/sum(group_5$working * group_5$weights * 5))) 
+
+
+Var_random4 <- sum((random_working_avg - mean(random_working_avg))^2)/20
+sd_random4 <- sqrt(Var_random4)
+se_random4 <- sd_random4/round(sum_working_hours/sum_workers, 2)
+
+random_est4 <- data.frame(Random = names , Y_hat =  c(Var_random4, sd_random4,se_random4))
+
+pander(random_est4)
+
+```
+
+
+#Jacknife
+```{r}
+jk_working_avg <- rbind(
+  round(sum(JK_data1$working_hours * JK_data1$weights * 5/4)/sum(JK_data1$working * JK_data1$weights * 5/4)),
+  round(sum(JK_data2$working_hours * JK_data2$weights * 5/4)/sum(JK_data2$working * JK_data2$weights * 5/4)),
+  round(sum(JK_data3$working_hours * JK_data3$weights * 5/4)/sum(JK_data3$working * JK_data3$weights * 5/4)),
+  round(sum(JK_data4$working_hours * JK_data4$weights * 5/4)/sum(JK_data4$working * JK_data4$weights * 5/4)),
+  round(sum(JK_data5$working_hours * JK_data5$weights * 5/4)/sum(JK_data5$working * JK_data5$weights * 5/4))) 
+
+
+Var_JK4 <- sum((jk_working_avg - mean(jk_working_avg))^2)*4/5
+sd_jk4 <- sqrt(Var_JK4)
+se_jk4 <- sd_jk4/round(sum_working_hours/sum_workers, 2)
+
+jk_est4 <- data.frame(Jacknife = names , Y_hat =  c(Var_JK4, sd_jk4, se_jk4))
+
+pander(jk_est4)
+
+
+pander(random_est4)
+
+```
+

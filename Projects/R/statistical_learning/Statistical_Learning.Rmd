@@ -1,0 +1,367 @@
+---
+title: "exam"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(readxl)
+library(dplyr)
+library(tidyverse)
+library(rsample)
+library(ISLR)
+library(matrixStats)
+library(grid) # graphics layout capabilities
+library(gridExtra) # Functions to work with "grid" graphic
+library(matlib) 
+library(dummies)
+library(stats)
+library(Epi)
+library(class)
+library(scales)
+library(dplyr)
+library(Hmisc)
+library(BBmisc)
+library(Metrics)
+library(FNN)
+library(glmnet)
+
+
+```
+
+```{r, echo=FALSE, warning=FALSE}
+#loading the data
+covid_data1 <- read_excel("C:/Users/zivpa/OneDrive/שולחן העבודה/statistical learning/exam/train_cases_demographics.xlsx")
+
+
+covid_data_test1 <- read.csv("C:/Users/zivpa/OneDrive/שולחן העבודה/statistical learning/exam/test_features.csv" , encoding = "UTF-8")
+
+#removing irrelevant variables
+covid_data <- covid_data1[,-c(1,2,3,5,8,20,21,22)]
+covid_data_test <- covid_data_test1[,-c(1,2,4,6,18,19,20)]
+
+covid_data$y <- covid_data$new_cases/covid_data$population
+covid_data$town_diabetes_rate <- as.numeric(covid_data$town_diabetes_rate)
+covid_data$town_pop_denisty <- as.numeric(covid_data$town_pop_denisty)
+covid_data <- na.omit(covid_data)
+
+
+covid_data_test$town_diabetes_rate <- as.numeric(covid_data_test$town_diabetes_rate)
+covid_data_test$town_pop_denisty <- as.numeric(covid_data_test$town_pop_denisty)
+covid_data_test <- na.omit(covid_data_test)
+
+
+```
+
+#Q1 
+
+
+```{r, message=FALSE}
+df1 <- covid_data
+df1$vaccination_norm <- df1$accumulated_vaccination_first_dose/df1$population
+df1$over70_norm <- df1$pop_over70/df1$population
+
+
+df1 %>% 
+  ggplot(aes(x = vaccination_norm, y = y, size = over70_norm)) +  geom_point(alpha=0.1, stat="identity") + theme_minimal() + scale_size(range = c(0, 8), name="Population over 70") + labs(x = "Vaccination percentage", y = "New cases rate") 
+
+```
+*הגרף הנ"ל מתאר את היחס בין שיעור מקרי הקורונה החדשים כפונקציה של אחוזי התחסנות ואחוז מבוגרים באיזורים הסטטיסטיים. נשים לב שככל שהעיגול גדול יותר כך אחוז האוכלוסיה המבוגרים מעל גיל 70 גדול יותר. ראשית, ניתן לראות שככל שאחוז המחוסנים עולה כך התחלואה יורדת באופן ברור. בנוסף, ניתן להבחין מהגרף גם כי איזורים סטטיסטיים בהם יש אחוז מבוגרים מעל גיל 70 גבוה יש אחוזי התחסנות גבוהים יותר. ניתן לחשוב שזאת כתוצאה מכך שאנשים מבוגרים תחת סכנה גדולה יותר מהקורונה ולכן באיזורים בהם יש יותר מבוגרים כך גם הם וגם הסביבה שלהם מתחסנת יותר.*
+*בגרף הנ"ל ניתן לראות את הקשר בין שיעור המקרים החדשים לבין אחוז המחוסנים. בנוסף ניתן לראות את הקשר בין שיעור המקרים החדשים לבין אחוז האוכלוסיה המבוגרת, באיזורים סטטיסטיים עם אחוז אוכלוסיה מבוגרת גבוה יש פחות מקרים חדשים, במילים אחרות, ככל שהעיגול גדול יותר הוא נוטה למטה יותר בגרף. יחד עם הקשרים הללו, כפי שהוסבר לעיל, ניתן לראות גם את הקשר בין אחוז ההתחסנות לבין אחוז האוכלוסיה המבוגרת. לכן, מהגרף הנ"ל ניתןת להסיק שיש קשר בין שלושת המשתנים שבחרתי.*
+*אציין כי האחוזים הנ"ל הם אחוזים מתוך האוכלוסיה של כל איזור סטטיסטי.*
+
+
+
+
+#Q2
+
+*we have a case of Co-Linearity which Ridge-Regression can solve*
+
+**a**
+
+```{r, echo=TRUE}
+set.seed(42)
+
+ridge <- function(train_x, train_y, lambda){
+
+#Make train x and train y as matrix so we could standardize and use matrix multiplication on them.
+train_x <- as.matrix(train_x)
+y <- as.vector(train_y)
+
+#standardize x train so our results we have sense.
+x <- as.matrix(normalize(train_x, method = "standardize"))
+
+#now, we calculate beta-hat for ridge regression with the formula (including the penalization).
+beta <- solve(crossprod(x) + diag(lambda, ncol = ncol(x), nrow = ncol(x))) %*% (t(x)%*%y)
+
+
+ return(as.vector(beta))
+}
+
+
+```
+
+**b**
+
+*We would use only numeric type of variables of our data so it would be compatible with linear reggression. Furthermore, we must remember that it is essential that predictor variables are standardized when preforming regularized regression. We would split the data to train and validation and then run our preformance of our ridge model over a wide range of possible lambda parameters. The chosen lambda parameter would be the one which gives our model the best RMSE.*
+
+```{r, echo=TRUE}
+
+cv_ridge <- function(x, y, lambda = NA, train_size = 0.7){
+  
+x <- as.matrix(normalize(x, method = "standardize"))
+y <- as.data.frame(y)
+df <- data.frame()
+r <- 100
+
+# Split data into training and validation datasets
+index <-  sample(1:nrow(x), train_size*nrow(x), replace = FALSE)
+
+train_x <- as.matrix(x[index,])
+train_y <- as.matrix(y[index,])
+valid_x <- as.matrix(x[-index,])
+valid_y <- as.matrix(y[-index,])
+
+
+for (l in lambda){
+
+betas <- ridge(train_x, train_y, l)
+rmse <- sqrt(mean((valid_y - (valid_x%*%betas))^2))
+df <- rbind(df, rmse)
+
+#Saving our betas and model lambda according to the minimum rmse.
+if(rmse < r){
+  model_betas <- betas
+  #Our models lambda would be the one who gives us the lowest RMSE. 
+  model_lambda <- l
+  r <- rmse
+  }
+
+}
+
+colnames(df)[1] <- "RMSE"
+df$lambda <- lambda
+
+#The best model would be the one with the lowest RMSE.
+model_rmse <- min(df$RMSE)
+
+#best model - a list include model beta, corespond test rmse, lambda
+best_model <- lst(model_betas, model_rmse, model_lambda)
+
+return(list(best_model = best_model, model_rmse = model_rmse, model_lambda = model_lambda))
+}
+
+
+```
+
+```{r, echo=TRUE}
+set.seed(42)
+#checking our function for various lambdas
+lambda <- runif(1000, 0, 100)
+x <- as.matrix(covid_data)[,-c(2,15)]
+x <- normalize(x, method = "standardize")
+y <- as.matrix(covid_data$y)
+results <- cv_ridge(x, y,lambda, 0.7)
+paste(c("The optimal lambda in this case is ", round(results$model_lambda,4)))
+```
+
+**c**
+
+```{r, echo=TRUE}
+#Finding the residuals
+y_hat <- x%*%results$best_model$model_betas
+resid <- (y - y_hat)
+
+#Ploting the residuals to see their distribution and try to understand what is happening.
+plot(resid)
+
+plot(y_hat, resid)
+
+```
+*כפי שניתן לראות בגרף הראשון, השאריות מתפלגות בסביבה הקרובה יחסית של 0. כלומר, התחזיות לכאורה נראות יחסית קרובות לנתוני האמת. אולם, נזכור כי מודל רגרסיית ריג' במהותו מקרב נתונים ל-0 ולכן יתכן שרק נראה שהמודל חזה טוב את מרבית הנתונים, לכן נדרש ניתוח מעמיק יותר. ניתן לראות כי יש איזור שבו השאריות מתרחקות מאפס ולאחר מכן חוזרות. בגרף השני ניתן לראות את צורת המשפך שמעידה על הטרוסקדסטיות בשונות של השארית למול התחזיות, כלומר, רוב הנתונים אכן נמצאים בסביבת ה0 ולכן יחסית קרובים לאמת אך ניתן לראות בבירור שהשונות שונה במודל. זה מהווה בעיה משום שאנו רוצים לראות שונויות שוות לאורך הגרף של השאריות, כלומר פיזור שווה. כלומר, משהו בהנחות המודל לא לגמרי תקין. ניתן לחשוב על מספר אפשרויות לסדר את המודל כמו למשל הוספת משקולות רלוונטיות, הורדת משתנים מסבירים תלוים - מולטיקולינאריות, וכדומה.*
+
+```{r, echo=TRUE}
+
+hist(resid, breaks=30)
+
+```
+*בהיסטוגרמה ניתן לראות כי לא מדובר בהתפלגות נורמלית, יש זנב ימני. יחד עם זאת נשים לב שרוב השאריות נמצאות בקרבת אפס. כעת, נבדוק בצורה מעמיקה יותר.*
+
+```{r, echo=TRUE}
+
+d <- covid_data
+d$resid <- resid
+d <- d[,-c(2,15)]
+#checking correlation
+corr <- cor(d)
+view(corr)
+#Checking if our residuals are approximately normaly distributed.
+qqnorm(resid, pch = 19)
+qqline(resid, col = "steelblue", lwd = 2)
+```
+
+
+*ניתן לראות באופן מובהק שהשאריות לא מתפלגות נורמלית.*
+
+*בפי שניתן לראות במטריצת הקורלציות, למעט המשתנה המוסבר והמקרים החדשים, אין קורלטיביות מהותית של השאריות עם המשתנים. כמו כן, נשים לב שיש קורלציות גבוהות מאוד בין משתנים בעלי אופי דומה מה שמעיד על מולטיקוליניאריות. בהמשך נוריד את המשתנה של ההכנסה ואת האינדקס הסוציו-אקונומי של האיזור הסטטיסטי ואת המשתנה של אוכלוסיה מעל גיל 20 שתלוי מידי בסה"כ אוכלוסיה.*
+
+
+```{r, echo=TRUE, message=FALSE}
+
+ggplot(d, aes(x = agas_socioeconomic_index , y = resid )) + geom_point() + geom_smooth()
+
+
+```
+*בגרף הנ"ל ניתן לראות את השאריות כפונקציה של המדד הכלכלי החברתי עבור כל איזור סטטיסטי. ניתן לראות דפוס מעניין, לפיו, ככל שהמדד נמוך יותר, כלומר, המצב הסוציו-אקונומי באיזור הסטטיסטי הרלוונטי נמוך יותר, כך המודל שלנו חוזה משמעותית פחות טוב את נתוני האמת. לעומת זאת, ככל שהאיזור מעיד על אולוסיה אמידה יותר, בעלת מצב סוציו אקונומי גדול, כך השאריות שלנו מפוזרות פחות סביב 0, כלומר, המוזל שלנו מצליח לחזות טוב יותר איזורים אמידים יותר.*
+
+
+**d**
+
+```{r, echo=TRUE}
+
+#creating and organizing the data 
+
+training_matrix <- as.matrix(covid_data[,-c(2,15)])
+
+#calculate the weights 
+weights <- t(training_matrix%*%(solve(t(training_matrix)%*%training_matrix+results$model_lambda*diag(ncol(training_matrix))))%*%t(training_matrix))
+
+
+lever_data <- covid_data1[,-c(2,3,8,20,21,22)]
+lever_data$y <- lever_data$new_cases/lever_data$population
+lever_data$town_diabetes_rate <- as.numeric(lever_data$town_diabetes_rate)
+lever_data$town_pop_denisty <- as.numeric(lever_data$town_pop_denisty)
+lever_data <- na.omit(lever_data)
+
+names(lever_data)[1] <- "ind"
+
+```
+
+```{r, echo=TRUE}
+
+#leverage <- cbind(lever_data, weights)
+leverage <- as.data.frame(weights)
+rownames(leverage) <- lever_data$ind
+
+#choosing a row from area 1
+leverage_area_1 <- lever_data %>% filter(agas_code == 1)
+
+#as we can see, the first observation is also in agas 1. 
+
+#all of our observation's weights 
+observation <- as.data.frame(t(as.vector(leverage[1,])))
+rownames(observation) <- lever_data$ind
+
+observation$ind <- lever_data$ind
+
+#5 observations which have the most influence on our observation (note that it extracts also the observation itself)
+top_5_influence <- as.data.frame(head(observation[order(observation$`1`, decreasing = T),], 6))
+
+#extracting index name of the original data
+top_observations_ind <- rownames(top_5_influence)
+
+#finding the observations in the data
+all_obs_data <- lever_data[top_observations_ind,]
+
+head(all_obs_data)
+```
+*כפי שניתן לראות, קיבלנו את חמשת האיזורים הסטטיסטיים בעלי ההשפעה הגבוהה ביותר על השורה המתבקש. נשים לב כי השורה הראשונה היא השורה של התצפית שחיפשנו. ניתן לראות כי יש דמיון  בין התצפיות הללו באיזור הסטטיסטים הללו. ראשית, 3 מהאיזורים נמצאים באופקים, שנית, כמות המקרים החדשים יחסית דומה באיזורים אלו. כמו כן, ניתן לראות כי קצב ההתחסנות גם הוא דומה. אמנם יש עמודות שבהן נראה שיש שוני אך אלו הן עמודות שפחות משמעותיות למחקר שלנו ולתחזית שלנו.* 
+
+
+
+
+#Q3
+*לצורך בניית מודל תחזיות טוב, אנו צריכים להשמיט חלק מהמשתנים שעשוים להיות תלוים אחד בשני בצורה מובהקת ומתוך כך להשפיע על המודל.*
+*משתנה ההכנסה לעיר דומה באופיו למשתנה של המדד הסוציו-אקונומי של הערים משום ששניהם מצביעים על תופעה זהה ולכן בעלי קורלציה גבוהה מאוד. נוסף על כך, המדד של האיזור הסטטיסטי מדויק יותר משני המדדים של הערים ולכן נישאר רק עם המדד הסוציו-אקונומי לפי איזור סטטיסטי.*
+*כמו כן, הקוד של כל איזור סטטיסטי הוא מדד שרירותי ונראה שלא שייך לתחזית המודל, נשמיט גם אותו.*
+*נשמיט גם את המשתנה של האוכלוסיה מעל גם 20 משום שהמשתנה הזה מאוד קרוב למשתנה של כלל האוכלוסיה ופחות רלוונטי עבור התחזית הנוכחית, שבאופיה מושפעת יותר מאוכלוסיה מבוגרת יותר.*
+   
+   
+
+*מהניתוח עד כה נראה שהמשתנים אינם בהכרח לינאריים ולכן אבחר מודל שיודע להתמודד עם סוג כזה של משתנים.*
+
+**KNN**
+
+*על מנת לבחור את מספר השכנים הטוב ביותר נחלק לטריין וטסט ונשווה את ביצועים של המודלים.*
+
+
+```{r, echo=TRUE}
+#choosing the relevant variables
+
+sub_vars = c("accumulated_vaccination_first_dose","town_perc_clalit","town_bagrut" ,"agas_socioeconomic_index",  "pop_over50","pop_over70", "population")
+
+
+x_for_k <- covid_data[, sub_vars]
+y_for_k <- as.data.frame(covid_data$y)
+
+```
+
+
+```{r, echo=TRUE}
+#splitting to train and test to help us choose the best k
+knn_index <-  sample(1:nrow(x_for_k), 0.7*nrow(x_for_k), replace = FALSE)
+
+knn_train_x <- as.matrix(x_for_k[knn_index,])
+knn_train_y <- as.matrix(y_for_k[knn_index,])
+knn_test_x <- as.matrix(x_for_k[-knn_index,])
+knn_test_y <- as.matrix(y_for_k[-knn_index,])
+
+```
+
+```{r, echo=TRUE}
+
+#Scaling the data so we could run KNN algorithm
+
+scaled_train_check <- normalize(knn_train_x, method = "standardize")
+scaled_test_check <- normalize(knn_test_x, method = "standardize")
+
+# Running KNN algorithm for various k's
+k_vec <- 3:100
+rmse_vec <- c()
+for(k in k_vec){
+  model_k <- knn.reg(knn_train_x, test = knn_test_x, knn_train_y, k = k)
+  rmse <- sqrt(mean((model_k$pred - as.vector(as.matrix(knn_test_y)))^2))
+  rmse_vec <- rbind(rmse_vec, rmse)
+}
+
+#choosing k which gives the minimum rmse
+k_data <- round(data.frame(k_vec, rmse_vec),5)
+best_k <- k_data$k_vec[which.min(rmse_vec)]
+
+
+```
+
+*We have the best k, now we can make the predictions.*
+
+```{r, echo=TRUE}
+
+#Taking the relevant variables from our test data.
+test_sub <- covid_data_test[, sub_vars]
+
+#creating the relevant training set for our data. 
+train_sub <- covid_data[, sub_vars]
+
+#Scaling the data so we could run KNN algorithm
+scaled_train <- normalize(train_sub, method = "standardize")
+scaled_test <- normalize(test_sub, method = "standardize")
+
+# Running KNN algorithm 
+model_knn <- knn.reg(scaled_train, test = scaled_test, covid_data$y, k = best_k)
+
+#predictions
+predict_y <- model_knn$pred
+
+
+#rmse estimation (the same rmse we got while searching for the best k)
+predict_rmse <- min(k_data$rmse_vec)
+
+```
+
+```{r}
+
+save(predict_y, predict_rmse, file = "204589949.rdata")
+
+
+```

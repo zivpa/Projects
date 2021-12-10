@@ -1,0 +1,19 @@
+---
+title: "preliminary"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(fs)
+
+rat_data <- read.delim(file="rat.data.tab.95.txt", header=TRUE, sep= "", dec = ".")
+rat_data <- as.data.frame(rat_data)
+
+
+rat_data
+
+```
